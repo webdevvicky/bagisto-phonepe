@@ -10,6 +10,7 @@ use Webkul\Sales\Transformers\OrderResource;
 use Illuminate\Support\Facades\Http;
 use Webkul\Checkout\Repositories\CartRepository;
 use Webkul\Checkout\Repositories\CustomerRepository;
+use App\Http\Controllers\Controller;
 
 
 
@@ -127,62 +128,58 @@ class PhonepeController extends Controller
                 return redirect()->route('shop.checkout.cart.index');
             }
 
-            // 1. Try to get the current session cart
-            $cart = Cart::getCart(); 
+            // Get current cart or try to restore from order_id
+            $cart = \Webkul\Checkout\Facades\Cart::getCart();
 
-            // 2. If not found, extract from order_id and retrieve manually
-            if (!$cart = \Webkul\Checkout\Facades\Cart::getCart()) {
+            if (!$cart) {
                 preg_match('/order_(\d+)_/', $orderId, $matches);
                 $cartId = $matches[1] ?? null;
 
                 if ($cartId) {
                     $cart = app(\Webkul\Checkout\Repositories\CartRepository::class)->find($cartId);
 
-                    if ($cart) {
-                        if ($cart->customer_id) {
-                            $customer = app(\Webkul\Customer\Repositories\CustomerRepository::class)->find($cart->customer_id);
-                            if ($customer) {
-                                auth('customer')->login($customer);
-                                \Log::info('Customer logged in from cart ID: ' . $cartId);
-                            }
+                    if ($cart && $cart->customer_id) {
+                        $customer = app(\Webkul\Customer\Repositories\CustomerRepository::class)->find($cart->customer_id);
+                        if ($customer) {
+                            auth('customer')->login($customer);
+                            \Log::info('Customer logged in from cart ID: ' . $cartId);
                         }
 
-                        // set cart
                         \Webkul\Checkout\Facades\Cart::setCart($cart);
-
-                        $cart = \Webkul\Checkout\Facades\Cart::getCart(); // Just to be sure
+                        $cart = \Webkul\Checkout\Facades\Cart::getCart();
                     }
                 }
             }
 
-
-            // 5. Final cart check
             if (!$cart) {
                 session()->flash('error', 'Cart not found. Please try again.');
                 return redirect()->route('shop.checkout.cart.index');
             }
 
-            // Fetch configuration
+            // Config values from admin
             $merchantId = core()->getConfigData('sales.payment_methods.phonepe.merchant_id');
             $saltKey    = core()->getConfigData('sales.payment_methods.phonepe.salt_key');
             $saltIndex  = core()->getConfigData('sales.payment_methods.phonepe.salt_index');
             $env        = core()->getConfigData('sales.payment_methods.phonepe.env');
 
-            $baseUrl = $env === 'sandbox'
-                ? 'https://api-preprod.phonepe.com/apis/pg-sandbox/pg/v1/status'
-                : 'https://api.phonepe.com/apis/hermes/pg/v1/status';
-
+            // Prepare status URL & checksum
             $path = "/pg/v1/status/{$merchantId}/{$orderId}";
-            $statusUrl = "{$baseUrl}/{$merchantId}/{$orderId}";
+            $baseUrl = $env === 'sandbox'
+                ? 'https://api-preprod.phonepe.com/apis/pg-sandbox'
+                : 'https://api.phonepe.com/apis/hermes';
+
+            $statusUrl = $baseUrl . $path;
             $checksum = hash('sha256', $path . $saltKey) . "###" . $saltIndex;
 
             \Log::info('PhonePe Status URL: ' . $statusUrl);
             \Log::info('PhonePe Checksum: ' . $checksum);
 
+            // Make status API call with both required headers
             $response = Http::withHeaders([
-                'Content-Type' => 'application/json',
-                'X-VERIFY'     => $checksum,
-                'Accept'       => 'application/json',
+                'Content-Type'   => 'application/json',
+                'X-VERIFY'       => $checksum,
+                'X-MERCHANT-ID'  => $merchantId,
+                'Accept'         => 'application/json',
             ])->get($statusUrl);
 
             \Log::info('PhonePe Status API Raw Response: ' . $response->body());
@@ -208,14 +205,13 @@ class PhonepeController extends Controller
                     $this->invoiceRepository->create($this->prepareInvoiceData($order));
                 }
 
-                Cart::deActivateCart();
+                \Webkul\Checkout\Facades\Cart::deActivateCart();
 
                 session()->flash('order_id', $order->id);
-
                 return redirect()->route('shop.checkout.onepage.success');
             }
 
-            session()->flash('error', 'PhonePe payment failed or cancelled.');
+            session()->flash('error', 'PhonePe payment failed or was cancelled.');
             return redirect()->route('shop.checkout.cart.index');
 
         } catch (\Exception $e) {
@@ -224,6 +220,7 @@ class PhonepeController extends Controller
             return redirect()->route('shop.checkout.cart.index');
         }
     }
+
 
 
     protected function prepareInvoiceData($order)
