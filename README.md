@@ -10,7 +10,7 @@ This package provides a seamless integration of PhonePe payment gateway with Bag
 
    ```php
    composer require webdevvicky/bagisto-phonepe
-```
+   ```
 
 2. Register the Phonepe service provider in Bootstrap/providers.php:
  ```php
