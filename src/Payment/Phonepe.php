@@ -1,6 +1,6 @@
 <?php
 
-namespace Vfixtechnology\Phonepe\Payment;
+namespace Webdevvicky\Phonepe\Payment;
 
 use Webkul\Payment\Payment\Payment;
 use Illuminate\Support\Facades\Storage;

@@ -1,6 +1,6 @@
 <?php
 
-namespace Vfixtechnology\Phonepe\Providers;
+namespace Webdevvicky\Phonepe\Providers;
 
 use Illuminate\Support\ServiceProvider;
 

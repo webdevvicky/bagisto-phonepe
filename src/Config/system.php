@@ -3,8 +3,8 @@
 return [
     [
         'key'    => 'sales.payment_methods.phonepe',
-        'name'   => 'Phonepe',
-        'info' => 'Phonepe extension created for Bagisto by <a href="https://www.vfixtechnology.com" target="_blank" style="color: blue;">Vfix Technology</a>.',
+        'name'   => 'PhonePe',
+        'info'   => 'PhonePe Payment Gateway',
         'sort'   => 4,
         'fields' => [
             [
@@ -14,11 +14,12 @@ return [
                 'validation'    => 'required',
                 'channel_based' => false,
                 'locale_based'  => true,
-            ], [
+            ],
+            [
                 'name'          => 'description',
                 'title'         => 'Description',
-                'validation'    => 'required',
                 'type'          => 'textarea',
+                'validation'    => 'required',
                 'channel_based' => false,
                 'locale_based'  => true,
             ],
@@ -30,6 +31,8 @@ return [
                 'locale_based'  => false,
                 'validation'    => 'mimes:bmp,jpeg,jpg,png,webp',
             ],
+
+            // ⚠️ REQUIRED: Merchant ID is still used in Create Order/Status calls
             [
                 'name'          => 'merchant_id',
                 'title'         => 'Merchant ID',
@@ -38,36 +41,41 @@ return [
                 'channel_based' => false,
                 'locale_based'  => true,
             ],
+
+            // 🔐 NEW: OAuth Credentials for /oauth/token
             [
-                'name'          => 'salt_key',
-                'title'         => 'Salt Key',
+                'name'          => 'client_id',
+                'title'         => 'Client ID',
                 'type'          => 'text',
                 'validation'    => 'required',
                 'channel_based' => false,
-                'locale_based'  => true,
+                'locale_based'  => false,
             ],
             [
-                'name'          => 'salt_index',
-                'title'         => 'Salt Index',
+                'name'          => 'client_secret',
+                'title'         => 'Client Secret',
+                'type'          => 'password',
+                'validation'    => 'required',
+                'channel_based' => false,
+                'locale_based'  => false,
+            ],
+            [
+                'name'          => 'client_version',
+                'title'         => 'Client Version',
                 'type'          => 'text',
                 'validation'    => 'required',
                 'channel_based' => false,
-                'locale_based'  => true,
+                'locale_based'  => false,
             ],
+
             [
                 'name'    => 'env',
                 'title'   => 'Environment',
                 'type'    => 'select',
                 'validation' => 'required',
                 'options' => [
-                    [
-                        'title' => 'Sandbox',
-                        'value' => 'sandbox',
-                    ],
-                    [
-                        'title' => 'Production',
-                        'value' => 'production',
-                    ],
+                    ['title' => 'Sandbox',   'value' => 'sandbox'],
+                    ['title' => 'Production','value' => 'production'],
                 ],
             ],
 
@@ -78,7 +86,7 @@ return [
                 'validation'    => 'required',
                 'channel_based' => false,
                 'locale_based'  => true,
-            ]
-        ]
-    ]
+            ],
+        ],
+    ],
 ];

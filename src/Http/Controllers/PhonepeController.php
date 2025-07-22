@@ -1,6 +1,6 @@
 <?php
 
-namespace Vfixtechnology\Phonepe\Http\Controllers;
+namespace Webdevvicky\Phonepe\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Webkul\Checkout\Facades\Cart;
@@ -11,9 +11,6 @@ use Illuminate\Support\Facades\Http;
 use Webkul\Checkout\Repositories\CartRepository;
 use Webkul\Checkout\Repositories\CustomerRepository;
 use App\Http\Controllers\Controller;
-
-
-
 
 class PhonepeController extends Controller
 {
@@ -26,211 +23,152 @@ class PhonepeController extends Controller
         $this->invoiceRepository = $invoiceRepository;
     }
 
-   
-    public function redirect(Request $request)
+    /**
+     * Fetch PhonePe access token
+     */
+    protected function getAccessToken()
+    {
+        $clientId = core()->getConfigData('sales.payment_methods.phonepe.client_id');
+        $clientVersion = core()->getConfigData('sales.payment_methods.phonepe.client_version');
+        $clientSecret = core()->getConfigData('sales.payment_methods.phonepe.client_secret');
+        $env = core()->getConfigData('sales.payment_methods.phonepe.env');
+
+        if (empty($clientId) || empty($clientVersion) || empty($clientSecret)) {
+            throw new \Exception('PhonePe client credentials are missing');
+        }
+
+        $url = $env === 'sandbox' ? 'https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token' : 'https://api.phonepe.com/apis/identity-manager/v1/oauth/token';
+
+        $response = Http::withHeaders([
+            'Content-Type' => 'application/x-www-form-urlencoded',
+        ])->asForm()->post($url, [
+            'client_id' => $clientId,
+            'client_version' => $clientVersion,
+            'client_secret' => $clientSecret,
+            'grant_type' => 'client_credentials',
+        ]);
+
+        if (!$response->successful()) {
+            throw new \Exception('Failed to fetch access token: ' . $response->body());
+        }
+
+        $data = $response->json();
+        if (!isset($data['access_token'])) {
+            throw new \Exception('Access token not found in response');
+        }
+
+        return $data['access_token'];
+    }
+
+    /**
+     * Initiate payment by creating an SDK order
+     */
+  public function redirect(Request $request)
     {
         try {
-
             $cart = Cart::getCart();
-           // \Log::info('Cart at redirect:', [Cart::getCart()]);
+            if (!$cart) throw new \Exception('Cart not found');
 
-            if (!$cart) {
-                throw new \Exception('Cart not found');
-            }
+            $amount = intval((($cart->sub_total + $cart->tax_total + ($cart->selected_shipping_rate->price ?? 0)) - $cart->discount_amount) * 100);
+            $merchantOrderId = 'order_' . $cart->id . '_' . time();
 
-            $billingAddress = $cart->billing_address;
-
-            if (!$billingAddress || !$billingAddress->phone) {
-                throw new \Exception('Billing address or phone number missing');
-            }
-
-            $shipping = $cart->selected_shipping_rate ? $cart->selected_shipping_rate->price : 0;
-            $discount = $cart->discount_amount;
-            $amount = ($cart->sub_total + $cart->tax_total + $shipping) - $discount;
-
-            $orderId = 'order_' . $cart->id . '_' . time();
-
-            $merchantId = core()->getConfigData('sales.payment_methods.phonepe.merchant_id');
-            $saltKey = core()->getConfigData('sales.payment_methods.phonepe.salt_key');
-            $saltIndex = core()->getConfigData('sales.payment_methods.phonepe.salt_index');
-            $env = core()->getConfigData('sales.payment_methods.phonepe.env'); // 'sandbox' or 'production'
-
-            // Validate required configuration
-            if (empty($merchantId) || empty($saltKey) || empty($saltIndex)) {
-                throw new \Exception('PhonePe payment configuration is incomplete');
-            }
-
-            $callbackUrl = route('phonepe.verify') . '?order_id=' . $orderId;
+            $accessToken = $this->getAccessToken();
+            $env = core()->getConfigData('sales.payment_methods.phonepe.env');
+            $url = ($env === 'sandbox')
+                ? 'https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/pay'
+                : 'https://api.phonepe.com/apis/pg/checkout/v2/pay';
 
             $payload = [
-                "merchantId" => $merchantId,
-                "merchantTransactionId" => $orderId,
-                "merchantUserId" => auth()->id() ?? 'guest_' . $billingAddress->phone,
-                "amount" => intval($amount * 100), // in paise
-                "redirectUrl" => $callbackUrl,
-                "redirectMode" => "POST",
-                "callbackUrl" => $callbackUrl,
-                "mobileNumber" => $billingAddress->phone,
-                "paymentInstrument" => [
-                    "type" => "PAY_PAGE"
+                "merchantOrderId" => $merchantOrderId,
+                "amount" => $amount,
+                "expireAfter" => 1200,
+                "metaInfo" => [
+                    "udf1" => "", "udf2" => "", "udf3" => "", "udf4" => "", "udf5" => ""
+                ],
+                "paymentFlow" => [
+                    "type" => "PG_CHECKOUT",
+                    "message" => "Payment for order $merchantOrderId",
+                    "merchantUrls" => [
+                        "redirectUrl" => route('phonepe.verify', ['order_id' => $merchantOrderId])
+                    ]
                 ]
             ];
 
-            $base64Payload = base64_encode(json_encode($payload));
-            $checksum = hash('sha256', $base64Payload . "/pg/v1/pay" . $saltKey) . "###" . $saltIndex;
-
-            $url = $env === 'sandbox'
-                ? "https://api-preprod.phonepe.com/apis/pg-sandbox/pg/v1/pay"
-                : "https://api.phonepe.com/apis/hermes/pg/v1/pay";
-
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json',
-                'X-VERIFY' => $checksum,
-                'Accept' => 'application/json',
-            ])->post($url, [
-                "request" => $base64Payload
-            ]);
+                'Authorization' => "O-Bearer $accessToken",
+            ])->post($url, $payload);
 
             if (!$response->successful()) {
-                throw new \Exception('PhonePe API request failed: ' . $response->status());
+                throw new \Exception('PhonePe /pay failed: ' . $response->body());
             }
 
-            $responseData = $response->json();
+            $data = $response->json();
+            $redirectUrl = data_get($data, 'redirectUrl') ?: data_get($data, 'redirectUrl', data_get($data, 'data.redirectInfo.url'));
 
-            // Log the response for debugging
-            \Log::info('PhonePe Payment Init Response:', $responseData);
-
-            if (isset($responseData['success']) && $responseData['success'] === true &&
-                isset($responseData['data']['instrumentResponse']['redirectInfo']['url'])) {
-                $request->session()->put('phonepe_order_id', $orderId);
-                return redirect()->to($responseData['data']['instrumentResponse']['redirectInfo']['url']);
+            if (!$redirectUrl) {
+                throw new \Exception('No redirectUrl in /pay response');
             }
 
-            $errorMessage = $responseData['message'] ?? 'Unable to initiate payment';
-            throw new \Exception($errorMessage);
+            session(['phonepe_order_id' => $merchantOrderId]);
+            return redirect()->away($redirectUrl);
 
         } catch (\Exception $e) {
             \Log::error('PhonePe Payment Error: ' . $e->getMessage());
-            session()->flash('error', $e->getMessage());
-            return redirect()->route('shop.checkout.cart.index');
+            return redirect()->route('shop.checkout.cart.index')->with('error', $e->getMessage());
         }
     }
 
     public function verify(Request $request)
     {
         try {
-            \Log::info('PhonePe Verify Incoming Request:', $request->all());
+            $merchantOrderId = $request->input('order_id') ?: session('phonepe_order_id');
+            if (!$merchantOrderId) throw new \Exception('Missing order_id');
 
-            $orderId = $request->input('order_id') ?? $request->get('order_id');
+            $accessToken = $this->getAccessToken();
+            $env = core()->getConfigData('sales.payment_methods.phonepe.env');
+            $url = ($env === 'sandbox')
+                ? "https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/order/$merchantOrderId/status?details=false"
+                : "https://api.phonepe.com/apis/pg/checkout/v2/order/$merchantOrderId/status?details=false";
 
-            if (!$orderId) {
-                session()->flash('error', 'PhonePe payment verification failed: Missing order ID');
-                return redirect()->route('shop.checkout.cart.index');
+            $resp = Http::withHeaders([
+                'Content-Type' => 'application/json',
+                'Authorization' => "O-Bearer $accessToken",
+            ])->get($url);
+
+            if (!$resp->successful()) {
+                throw new \Exception('Status API failed: ' . $resp->body());
             }
 
-            // Get current cart or try to restore from order_id
-            $cart = \Webkul\Checkout\Facades\Cart::getCart();
+            $data = $resp->json();
+            if (data_get($data, 'state') === 'COMPLETED') {
+                $cart = Cart::getCart(); // similar login logic as before
+                if (!$cart) throw new \Exception('Cart expired');
 
-            if (!$cart) {
-                preg_match('/order_(\d+)_/', $orderId, $matches);
-                $cartId = $matches[1] ?? null;
-
-                if ($cartId) {
-                    $cart = app(\Webkul\Checkout\Repositories\CartRepository::class)->find($cartId);
-
-                    if ($cart && $cart->customer_id) {
-                        $customer = app(\Webkul\Customer\Repositories\CustomerRepository::class)->find($cart->customer_id);
-                        if ($customer) {
-                            auth('customer')->login($customer);
-                            \Log::info('Customer logged in from cart ID: ' . $cartId);
-                        }
-
-                        \Webkul\Checkout\Facades\Cart::setCart($cart);
-                        $cart = \Webkul\Checkout\Facades\Cart::getCart();
-                    }
-                }
-            }
-
-            if (!$cart) {
-                session()->flash('error', 'Cart not found. Please try again.');
-                return redirect()->route('shop.checkout.cart.index');
-            }
-
-            // Config values from admin
-            $merchantId = core()->getConfigData('sales.payment_methods.phonepe.merchant_id');
-            $saltKey    = core()->getConfigData('sales.payment_methods.phonepe.salt_key');
-            $saltIndex  = core()->getConfigData('sales.payment_methods.phonepe.salt_index');
-            $env        = core()->getConfigData('sales.payment_methods.phonepe.env');
-
-            // Prepare status URL & checksum
-            $path = "/pg/v1/status/{$merchantId}/{$orderId}";
-            $baseUrl = $env === 'sandbox'
-                ? 'https://api-preprod.phonepe.com/apis/pg-sandbox'
-                : 'https://api.phonepe.com/apis/hermes';
-
-            $statusUrl = $baseUrl . $path;
-            $checksum = hash('sha256', $path . $saltKey) . "###" . $saltIndex;
-
-            \Log::info('PhonePe Status URL: ' . $statusUrl);
-            \Log::info('PhonePe Checksum: ' . $checksum);
-
-            // Make status API call with both required headers
-            $response = Http::withHeaders([
-                'Content-Type'   => 'application/json',
-                'X-VERIFY'       => $checksum,
-                'X-MERCHANT-ID'  => $merchantId,
-                'Accept'         => 'application/json',
-            ])->get($statusUrl);
-
-            \Log::info('PhonePe Status API Raw Response: ' . $response->body());
-
-            if (!$response->successful()) {
-                session()->flash('error', 'PhonePe verification failed. Try again later.');
-                return redirect()->route('shop.checkout.cart.index');
-            }
-
-            $data = $response->json();
-            \Log::info('PhonePe Status API Parsed Response:', $data);
-
-            if (
-                isset($data['success']) && $data['success'] === true &&
-                isset($data['code']) && $data['code'] === 'PAYMENT_SUCCESS' &&
-                isset($data['data']['state']) && in_array($data['data']['state'], ['SUCCESS', 'COMPLETED']) &&
-                isset($data['data']['merchantTransactionId']) && $data['data']['merchantTransactionId'] === $orderId
-            ) {
                 $order = $this->orderRepository->create((new OrderResource($cart))->jsonSerialize());
                 $this->orderRepository->update(['status' => 'processing'], $order->id);
-
-                if ($order->canInvoice()) {
-                    $this->invoiceRepository->create($this->prepareInvoiceData($order));
-                }
-
-                \Webkul\Checkout\Facades\Cart::deActivateCart();
-
-                session()->flash('order_id', $order->id);
-                return redirect()->route('shop.checkout.onepage.success');
+                Cart::deActivateCart();
+                return redirect()->route('shop.checkout.onepage.success')->with('order_id', $order->id);
             }
 
-            session()->flash('error', 'PhonePe payment failed or was cancelled.');
-            return redirect()->route('shop.checkout.cart.index');
+            throw new \Exception('Payment not completed: ' . data_get($data, 'state'));
 
         } catch (\Exception $e) {
-            \Log::error('PhonePe Verify Exception: ' . $e->getMessage());
-            session()->flash('error', 'Something went wrong during payment verification.');
-            return redirect()->route('shop.checkout.cart.index');
+            \Log::error('PhonePe Verify Error: ' . $e->getMessage());
+            return redirect()->route('shop.checkout.cart.index')->with('error', 'Payment verification failed.');
         }
     }
+    
 
-
-
+    /**
+     * Prepare invoice data for the order
+     */
     protected function prepareInvoiceData($order)
     {
         $invoiceData = ["order_id" => $order->id];
-
         foreach ($order->items as $item) {
             $invoiceData['invoice']['items'][$item->id] = $item->qty_to_invoice;
         }
-
         return $invoiceData;
     }
 }

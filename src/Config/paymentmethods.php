@@ -5,7 +5,7 @@ return [
         'code'        => 'phonepe',
         'title'       => 'Phonepe',
         'description' => 'Phonepe',
-        'class'       => 'Vfixtechnology\Phonepe\Payment\Phonepe',
+        'class'       => 'Webdevvicky\Phonepe\Payment\Phonepe',
         'active'      => true,
         'sort'        => 1,
     ],

@@ -1,6 +1,6 @@
 <?php
 
-namespace Vfixtechnology\Phonepe\Http\Controllers;
+namespace Webdevvicky\Phonepe\Http\Controllers;
 
 use Illuminate\Foundation\Bus\DispatchesJobs;
 use Illuminate\Routing\Controller as BaseController;
