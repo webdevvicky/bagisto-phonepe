@@ -32,3 +32,6 @@ $middleware->validateCsrfTokens(except: [
 ```php
 php artisan config:cache
 ```
+
+Originally developed by Vfix Technology  
+Modified and maintained by webdevvicky  
