@@ -1,18 +1,20 @@
-# Phonepe Payment Gateway Integration for Bagisto by Vfix Technology
+# PhonePe Payment Gateway Integration for Bagisto by webdevvicky
 
-This package provides a seamless integration of Phonepe payment gateway with Bagisto applications.
+This package provides a seamless integration of PhonePe payment gateway with Bagisto applications.
+
+**This integration uses PhonePe API Version 2**
 
 ## Installation
 
 1. Install the package via Composer:
 
-```php
-composer require vfixtechnology/bagisto-phonepe
+   ```php
+   composer require webdevvicky/bagisto-phonepe
 ```
 
 2. Register the Phonepe service provider in Bootstrap/providers.php:
  ```php
-  Vfixtechnology\Phonepe\Providers\PhonepeServiceProvider::class,
+  Webdevvicky\Phonepe\Providers\PhonepeServiceProvider::class,
  ```
 
 3. Navigate to your admin panel:
@@ -30,15 +32,3 @@ $middleware->validateCsrfTokens(except: [
 ```php
 php artisan config:cache
 ```
-
-## Support This Project
-
-If you find this package useful, please consider showing your support by:
-
-⭐ Giving the repository a star on GitHub  
-📣 Sharing it with your developer community  
-🐛 Reporting any issues you encounter  
-
-Your support helps maintain and improve this project for everyone.
-
-#### For any help or customization, visit https://www.vfixtechnology.com or email us info@vfixtechnology.com
