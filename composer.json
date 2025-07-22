@@ -1,5 +1,5 @@
 {
-  "name": "webdevvicky/bagisto-phonepe",
+  "name": "webdevvicky/bagisto-phonepe-v2",
   "description": "Phonepe payment gateway for bagisto laravel open source ecommerce platform.",
   "license": "MIT",
   "autoload": {
